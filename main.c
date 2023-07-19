@@ -2,13 +2,14 @@
 
 #include <stdio.h>
 #include <SDL.h>
-
+#include <stdbool.h>
+#include <unistd.h>
 /*
  * CPU and memory values
  */
 uint16_t opcode;
 uint8_t memory[4096];
-uint8_t registers[16];
+uint8_t reg[16];
 uint16_t ind;
 uint16_t pc;
 
@@ -43,11 +44,49 @@ uint8_t fontset[80] =
 };
 
 
+// Functions
+void init();
+void cycle();
+
 int
 main(int argc, char **argv)
 {
-        (void) argc;
-        (void) argv;
+        // Checking input arguments
+	if (argc < 2) {
+		printf("Missing file name");
+		return -1;
+	}
+
+        // Initialize memory
+        init();
+
+        // Loading game file
+        char *filename = argv[1];
+
+        FILE *rom = fopen(filename, "r");
+
+        if (rom == NULL) {
+                printf("Error");
+                return(-1);
+        }
+
+        // Copying into memory
+        fseek(rom, 0, SEEK_END);
+        long fsize = ftell(rom);
+        printf("size: %ld\n", fsize);
+        fseek(rom, 0, SEEK_SET); 
+
+        fread(memory + 0x200, fsize, sizeof(uint16_t), rom);
+        fclose(rom);
+
+        // Random seed (should this be included?)
+        srand(0);
+        // Emulator loop
+        while (true) {
+                // Syncing framerate
+                sleep(1);
+                cycle();
+        }
 
         return (1);
 }
@@ -65,7 +104,7 @@ init()
 
         // Zero memory
         memset(memory, 0, 4096 * sizeof(uint8_t));
-        memset(registers, 0, 16 * sizeof(uint8_t));
+        memset(reg, 0, 16 * sizeof(uint8_t));
         memset(stack, 0, 16 * sizeof(uint16_t));
         memset(graphics, 0, 2048 * sizeof(uint8_t));
 
@@ -78,6 +117,7 @@ cycle()
 
         // Get opcode at current memory position
         opcode = memory[pc] << 8 | memory[pc + 1];
+        pc += 2;
 
         // Variable opcode values
         uint16_t addr;
@@ -89,6 +129,8 @@ cycle()
         y = (opcode & 0x00F0) >> 4;     // upper 4 bits of lower byte
         x = (opcode & 0x0F00) >> 8;     // lower 4 bits of upper byte
 
+        printf("%x : %x\n", opcode, pc);
+        (void)n;
 
         // Running different opcodes
         switch (opcode & 0xF000) {     // Switch on first value
@@ -96,83 +138,146 @@ cycle()
                 case 0x0000:
                 switch (opcode) {
                         case 0x00E0:
-                        (void) 0; //Clear screen
+                        memset(graphics, 0, 2048 * sizeof(uint8_t)); //Clear screen
+                        break;
                         case 0x00EE:
-                        (void) 0; //Return from subroutine
+                        sp--; 
+                        pc = stack[sp]; //Return from subroutine
+                        break;
                 }
+                        break;
 
                 case 0x1000:
-                (void) 0; // Goto addr
+                pc = addr; // Goto addr
+                break;
                 case 0x2000:
-                (void) 0; // subroutine addr
+                stack[sp] = pc;
+                sp++;
+                pc = addr; // subroutine addr
+                break;
                 case 0x3000:
-                (void) 0; // skip if register x = kk
+                if (reg[x] == kk) {
+                        pc +=2;
+                } // skip if register x = kk
+                break;
                 case 0x4000:
-                (void) 0; // skip if register x != kk
+                if (reg[x] != kk) {
+                        pc += 2;
+                } // skip if register x != kk
+                break;
                 case 0x5000:
-                (void) 0; // skip if register x = register y
+                if (reg[x] == reg[y]) {
+                        pc += 2;
+                } // skip if register x = register y
+                break;
                 case 0x6000:
-                (void) 0; // sets register x to kk
+                reg[x] = kk; // sets register x to kk
+                break;
                 case 0x7000:
-                (void) 0; // increments register x by kk
+                reg[x] += kk; // increments register x by kk
+                break;
                 case 0x8000:
                 switch (opcode & 0x000F) {
                         case 0x0000:
-                        (void) 0; // sets register x to register y
+                        reg[x] = reg[y]; // sets register x to register y
+                        break;
                         case 0x0001:
-                        (void) 0; // ors register x with register y
+                        reg[x] |= reg[y]; // ors register x with register y
+                        break;
                         case 0x0002:
-                        (void) 0; // ands register x with register y
+                        reg[x] &= reg[y]; // ands register x with register y
+                        break;
                         case 0x0003:
-                        (void) 0; // xors register x with register y
+                        reg[x] ^= reg[y]; // xors register x with register y
+                        break;
                         case 0x0004:
                         (void) 0; // adds register y to register x, updates reg F
+                        break;
                         case 0x0005:
-                        (void) 0; // subtracts reg y from reg x, updates reg F
+                        reg[15] = 0;
+                        if (reg[x] > reg[y]) {
+                                reg[15] = 1;
+                        }
+                        reg[x] -= reg[y]; // subtracts reg y from reg x, updates reg F
+                        break;
                         case 0x0006:
-                        (void) 0; // sets reg x >>= 1, stores lost bit in reg F
+                        reg[15] = reg[x] & 0x1;
+                        reg[x] >>= 1; // sets reg x >>= 1, stores lost bit in reg F
+                        break;
                         case 0x0007:
-                        (void) 0; // sets reg x to reg y - reg x, updates reg F
+                        reg[15] = 0;
+                        if (reg[x] < reg[y]) {
+                                reg[15] = 1;
+                        }
+                        reg[x] = reg[y] - reg[x]; // sets reg x to reg y - reg x, updates reg F
+                        break;
                         case 0x000E:
-                        (void) 0; // sets reg x <<= 1, stores lost bit in reg F
+                        reg[15] = reg[x] >> 7;
+                        reg[x] <<= 1; // sets reg x <<= 1, stores lost bit in reg F
+                        break;
                 }
+                break;
                 case 0x9000:
-                (void) 0; // skips if reg x != reg y
+                if (reg[x] != reg[y]) {
+                        pc += 2;
+                } // skips if reg x != reg y
+                break;
                 case 0xA000:
-                (void) 0; // sets ind to addr
+                ind = addr; // sets ind to addr
+                break;
                 case 0xB000:
-                (void) 0; // jumps to addr + reg 0
+                pc = addr + reg[0]; // jumps to addr + reg 0
+                break;
                 case 0xC000:
-                (void) 0; // sets reg X to a random value || KK
+                reg[x] = (rand() % 256) & kk; // sets reg X to a random value || KK
+                break;
                 case 0xD000:
                 (void) 0; // displays a rectangle
+                break;
                 case 0xE000:
                 switch (opcode & 0x00FF) {
                         case 0x009E:
                         (void) 0; // skips if reg X key is pressed
+                        break;
                         case 0x00A1:
                         (void) 0; // skips if reg X key is not pressed
+                        break;
                 }
+                break;
                 case 0xF000:
                 switch (opcode & 0x00FF) {
                         case 0x0007:
-                        (void) 0; // sets reg X to delay timer
+                        reg[x] = d_timer; // sets reg X to delay timer
+                        break;
                         case 0x000A:
                         (void) 0; // blocking wait to store key in reg X
+                        break;
                         case 0x0015:
-                        (void) 0; // sets delay timer to reg X
+                        d_timer = reg[x]; // sets delay timer to reg X
+                        break;
                         case 0x0018:
-                        (void) 0; // sets sound timer to reg X
+                        s_timer = reg[x]; // sets sound timer to reg X
+                        break;
                         case 0x001E:
-                        (void) 0; // adds reg X to ind
+                        ind += reg[x]; // adds reg X to ind
+                        break;
                         case 0x0029:
                         (void) 0; // sprite stuff?
+                        break;
                         case 0x0033:
                         (void) 0; // stores binary digits of reg X to ind
+                        break;
                         case 0x0055:
-                        (void) 0; // stores regs in memory starting at ind
+                        for (int i = 0; i <= x; i++) {
+                                memory[ind + i] = reg[i];
+                        } // stores regs in memory starting at ind
+                        break;
                         case 0x0065:
-                        (void) 0; // fills regs from memory starting from ind
+                        for (int i = 0; i <= x; i++) {
+                                reg[i] = memory[ind + i];
+                        }; // fills regs from memory starting from ind
+                        break;
                 }
+                break;
         }
 }
