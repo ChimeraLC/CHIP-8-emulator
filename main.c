@@ -63,7 +63,7 @@ main(int argc, char **argv)
         // Loading game file
         char *filename = argv[1];
 
-        FILE *rom = fopen(filename, "r");
+        FILE *rom = fopen(filename, "rb");
 
         if (rom == NULL) {
                 printf("Error");
@@ -76,18 +76,132 @@ main(int argc, char **argv)
         printf("size: %ld\n", fsize);
         fseek(rom, 0, SEEK_SET); 
 
-        fread(memory + 0x200, fsize, sizeof(uint16_t), rom);
+        fread(memory + 0x200, fsize, 1, rom);
         fclose(rom);
 
         // Random seed (should this be included?)
         srand(0);
+
+        SDL_Event event;
+        
         // Emulator loop
         while (true) {
                 // Syncing framerate
-                sleep(1);
+                sleep(0.5);
+                // Reading keyboard events
+                while(0 &&  SDL_PollEvent( &event ) ){
+                        switch( event.type ){
+                                case SDL_KEYDOWN:
+                                        switch( event.key.keysym.sym ){
+                                                case SDLK_1:
+                                                keypad[0] = 1;
+                                                break;
+                                                case SDLK_2:
+                                                keypad[1] = 1;
+                                                break;
+                                                case SDLK_3:
+                                                keypad[2] = 1;
+                                                break;
+                                                case SDLK_4:
+                                                keypad[3] = 1;
+                                                break;
+                                                case SDLK_q:
+                                                keypad[4] = 1;
+                                                break;
+                                                case SDLK_w:
+                                                keypad[5] = 1;
+                                                break;
+                                                case SDLK_e:
+                                                keypad[6] = 1;
+                                                break;
+                                                case SDLK_r:
+                                                keypad[7] = 1;
+                                                break;
+                                                case SDLK_a:
+                                                keypad[8] = 1;
+                                                break;
+                                                case SDLK_s:
+                                                keypad[9] = 1;
+                                                break;
+                                                case SDLK_d:
+                                                keypad[10] = 1;
+                                                break;
+                                                case SDLK_f:
+                                                keypad[11] = 1;
+                                                break;
+                                                case SDLK_z:
+                                                keypad[12] = 1;
+                                                break;
+                                                case SDLK_x:
+                                                keypad[13] = 1;
+                                                break;
+                                                case SDLK_c:
+                                                keypad[14] = 1;
+                                                break;
+                                                case SDLK_v:
+                                                keypad[15] = 1;
+                                                break;
+                                        }
+                                break;
+
+                                case SDL_KEYUP:
+                                        switch( event.key.keysym.sym ){
+                                                case SDLK_1:
+                                                keypad[0] = 0;
+                                                break;
+                                                case SDLK_2:
+                                                keypad[1] = 0;
+                                                break;
+                                                case SDLK_3:
+                                                keypad[2] = 0;
+                                                break;
+                                                case SDLK_4:
+                                                keypad[3] = 0;
+                                                break;
+                                                case SDLK_q:
+                                                keypad[4] = 0;
+                                                break;
+                                                case SDLK_w:
+                                                keypad[5] = 0;
+                                                break;
+                                                case SDLK_e:
+                                                keypad[6] = 0;
+                                                break;
+                                                case SDLK_r:
+                                                keypad[7] = 0;
+                                                break;
+                                                case SDLK_a:
+                                                keypad[8] = 0;
+                                                break;
+                                                case SDLK_s:
+                                                keypad[9] = 0;
+                                                break;
+                                                case SDLK_d:
+                                                keypad[10] = 0;
+                                                break;
+                                                case SDLK_f:
+                                                keypad[11] = 0;
+                                                break;
+                                                case SDLK_z:
+                                                keypad[12] = 0;
+                                                break;
+                                                case SDLK_x:
+                                                keypad[13] = 0;
+                                                break;
+                                                case SDLK_c:
+                                                keypad[14] = 0;
+                                                break;
+                                                case SDLK_v:
+                                                keypad[15] = 0;
+                                                break;
+                                        }
+                                break;
+                        }
+                }
+                // Running emulator cycle
+                
                 cycle();
         }
-
         return (1);
 }
 
@@ -130,7 +244,6 @@ cycle()
         x = (opcode & 0x0F00) >> 8;     // lower 4 bits of upper byte
 
         printf("%x : %x\n", opcode, pc);
-        (void)n;
 
         // Running different opcodes
         switch (opcode & 0xF000) {     // Switch on first value
@@ -191,7 +304,11 @@ cycle()
                         reg[x] ^= reg[y]; // xors register x with register y
                         break;
                         case 0x0004:
-                        (void) 0; // adds register y to register x, updates reg F
+                        reg[15] = 0;
+                        if ((int) reg[x] + (int) reg[y] > 255) {
+                                reg[15] = 1;
+                        }
+                        reg[x] += reg[y]; // adds register y to register x, updates reg F
                         break;
                         case 0x0005:
                         reg[15] = 0;
@@ -232,15 +349,34 @@ cycle()
                 reg[x] = (rand() % 256) & kk; // sets reg X to a random value || KK
                 break;
                 case 0xD000:
-                (void) 0; // displays a rectangle
+                reg[15] = 0;
+                uint8_t row;
+                uint8_t pixel;
+                for (int i = 0; i < n; i++){
+                        row = memory[ind + i];
+                        for (int j = 0; j < 8; j++) {
+                                pixel = (row >> (7 - j)) & 0x1;
+                                if (pixel)
+                                {
+                                        if (graphics[reg[x] + j + (reg[y] + i) * 64]) {
+                                                reg[15] = 1;
+                                        }
+                                        graphics[reg[x] + j + (reg[y] + i) * 64] ^= pixel;
+                                }
+                        }
+                } // ors an n by 8 rectangle from memory onto the location reg x, reg y
                 break;
                 case 0xE000:
                 switch (opcode & 0x00FF) {
                         case 0x009E:
-                        (void) 0; // skips if reg X key is pressed
+                        if (keypad[reg[x]]){
+                                pc += 2;
+                        } // skips if reg X key is pressed
                         break;
                         case 0x00A1:
-                        (void) 0; // skips if reg X key is not pressed
+                        if (!keypad[reg[x]]) {
+                                pc += 2;
+                        }; // skips if reg X key is not pressed
                         break;
                 }
                 break;
@@ -250,7 +386,17 @@ cycle()
                         reg[x] = d_timer; // sets reg X to delay timer
                         break;
                         case 0x000A:
-                        (void) 0; // blocking wait to store key in reg X
+                        bool key = false;
+                        for (int i = 0; i < 16; i ++) {
+                                if (keypad[i]) {
+                                        key = true;
+                                        reg[x] = i;
+                                        break;
+                                }
+                        }
+                        if (!key) {
+                                pc -= 2;
+                        } // blocking wait to store key in reg X
                         break;
                         case 0x0015:
                         d_timer = reg[x]; // sets delay timer to reg X
@@ -262,10 +408,12 @@ cycle()
                         ind += reg[x]; // adds reg X to ind
                         break;
                         case 0x0029:
-                        (void) 0; // sprite stuff?
+                        ind = 5 * reg[x]; // sets ind to sprite location of reg x
                         break;
                         case 0x0033:
-                        (void) 0; // stores binary digits of reg X to ind
+                        memory[ind] = (reg[x] - reg[x] % 100) / 100;
+                        memory[ind + 1] = (reg[x] % 100 - reg[x] % 10) / 10;
+                        memory[ind + 2] = reg[x] % 10; // stores binary digits of reg X to ind
                         break;
                         case 0x0055:
                         for (int i = 0; i <= x; i++) {
