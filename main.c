@@ -60,6 +60,21 @@ main(int argc, char **argv)
         // Initialize memory
         init();
 
+        // Initialize sdl
+        if (SDL_Init(SDL_INIT_EVERYTHING) != 0) {
+                printf("error initializing SDL: %s\n", SDL_GetError());
+        }
+        SDL_Window *window = SDL_CreateWindow("Chip-8", 
+                                        SDL_WINDOWPOS_CENTERED,
+                                        SDL_WINDOWPOS_CENTERED,
+                                        1280, 640, 0);
+
+        SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+        SDL_RenderSetLogicalSize(renderer, 64, 32);
+        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); 
+
+        SDL_Texture *texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA32, 
+                                        SDL_TEXTUREACCESS_STREAMING, 64, 32);
         // Loading game file
         char *filename = argv[1];
 
@@ -83,16 +98,20 @@ main(int argc, char **argv)
         srand(0);
 
         SDL_Event event;
-        
+        bool active = true;
+
         // Emulator loop
-        while (true) {
+        while (active == true) {
                 // Syncing framerate
-                sleep(0.5);
+                SDL_Delay(5);
                 // Reading keyboard events
-                while(0 &&  SDL_PollEvent( &event ) ){
+                while(SDL_PollEvent( &event ) ){
                         switch( event.type ){
                                 case SDL_KEYDOWN:
                                         switch( event.key.keysym.sym ){
+                                                case SDLK_ESCAPE:
+                                                active = false;
+                                                break; // Exiting emulator
                                                 case SDLK_1:
                                                 keypad[0] = 1;
                                                 break;
@@ -198,10 +217,44 @@ main(int argc, char **argv)
                                 break;
                         }
                 }
+
+                // Updating timers
+                if (d_timer > 0) d_timer--;
+                if (s_timer > 0) s_timer--;
+
                 // Running emulator cycle
-                
                 cycle();
+
+                // Displaying on screen
+                uint8_t pixels[8196];
+                memset(pixels, 0, 8196);
+                for (int i = 0; i < 2048; i++) {
+                        if (graphics[i]) {
+                                pixels[i * 4 + 0] = 255;
+                                pixels[i * 4 + 1] = 255;
+                                pixels[i * 4 + 2] = 255;
+                                pixels[i * 4 + 3] = 255;
+                        }
+                }
+                int texture_pitch = 0;
+                void* texture_pixels = NULL;
+                if (SDL_LockTexture(texture, NULL, &texture_pixels, &texture_pitch) != 0) {
+                        SDL_Log("Unable to lock texture: %s", SDL_GetError());
+                }
+                else {
+                        memcpy(texture_pixels, pixels, texture_pitch * 32);
+                }
+                SDL_UnlockTexture(texture);
+                SDL_RenderClear(renderer);
+                SDL_RenderCopy(renderer, texture, NULL, NULL);
+                SDL_RenderPresent(renderer);
         }
+
+        // Clean up SDL elements
+        SDL_DestroyWindow(window); // Destroy window
+        SDL_DestroyRenderer(renderer); // Destroy renderer
+        SDL_DestroyTexture(texture); // Destroy texture
+        SDL_Quit();             // Close SDL
         return (1);
 }
 
