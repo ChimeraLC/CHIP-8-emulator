@@ -1,5 +1,3 @@
-//https://stackoverflow.com/questions/64396979/how-do-i-use-sdl2-in-my-programs-correctly
-
 #include <stdio.h>
 #include <SDL.h>
 #include <stdbool.h>
@@ -46,7 +44,7 @@ uint8_t fontset[80] =
 
 // Functions
 void init();
-void cycle();
+bool cycle();
 
 int
 main(int argc, char **argv)
@@ -99,6 +97,8 @@ main(int argc, char **argv)
 
         SDL_Event event;
         bool active = true;
+        bool draw = false;
+        //TODO: add draw_update;
 
         // Emulator loop
         while (active == true) {
@@ -223,31 +223,32 @@ main(int argc, char **argv)
                 if (s_timer > 0) s_timer--;
 
                 // Running emulator cycle
-                cycle();
+                draw = cycle();
 
                 // Displaying on screen
-                uint8_t pixels[8196];
-                memset(pixels, 0, 8196);
-                for (int i = 0; i < 2048; i++) {
-                        if (graphics[i]) {
-                                pixels[i * 4 + 0] = 255;
-                                pixels[i * 4 + 1] = 255;
-                                pixels[i * 4 + 2] = 255;
-                                pixels[i * 4 + 3] = 255;
+                if (draw) {
+                        uint8_t pixels[8196];
+                        memset(pixels, 0, 8196);
+                        for (int i = 0; i < 2048; i++) {
+                                if (graphics[i]) {
+                                        uint32_t *int32s = (uint32_t *) pixels;
+                                        // TODO: cast to uint32_t
+                                        int32s[i] = 4294967295;
+                                }
                         }
+                        int texture_pitch = 0;
+                        void* texture_pixels = NULL;
+                        if (SDL_LockTexture(texture, NULL, &texture_pixels, &texture_pitch) != 0) {
+                                SDL_Log("Unable to lock texture: %s", SDL_GetError());
+                        }
+                        else {
+                                memcpy(texture_pixels, pixels, texture_pitch * 32);
+                        }
+                        SDL_UnlockTexture(texture);
+                        SDL_RenderClear(renderer);
+                        SDL_RenderCopy(renderer, texture, NULL, NULL);
+                        SDL_RenderPresent(renderer);
                 }
-                int texture_pitch = 0;
-                void* texture_pixels = NULL;
-                if (SDL_LockTexture(texture, NULL, &texture_pixels, &texture_pitch) != 0) {
-                        SDL_Log("Unable to lock texture: %s", SDL_GetError());
-                }
-                else {
-                        memcpy(texture_pixels, pixels, texture_pitch * 32);
-                }
-                SDL_UnlockTexture(texture);
-                SDL_RenderClear(renderer);
-                SDL_RenderCopy(renderer, texture, NULL, NULL);
-                SDL_RenderPresent(renderer);
         }
 
         // Clean up SDL elements
@@ -278,7 +279,7 @@ init()
         // Copy over fontset
         memcpy(memory, fontset, 80 * sizeof(uint8_t));
 }
-void
+bool
 cycle()
 {
 
@@ -296,7 +297,8 @@ cycle()
         y = (opcode & 0x00F0) >> 4;     // upper 4 bits of lower byte
         x = (opcode & 0x0F00) >> 8;     // lower 4 bits of upper byte
 
-        printf("%x : %x\n", opcode, pc);
+        // Opcode debug message
+        //printf("%x : %x\n", opcode, pc);
 
         // Running different opcodes
         switch (opcode & 0xF000) {     // Switch on first value
@@ -305,6 +307,7 @@ cycle()
                 switch (opcode) {
                         case 0x00E0:
                         memset(graphics, 0, 2048 * sizeof(uint8_t)); //Clear screen
+                        return true;
                         break;
                         case 0x00EE:
                         sp--; 
@@ -418,6 +421,7 @@ cycle()
                                 }
                         }
                 } // ors an n by 8 rectangle from memory onto the location reg x, reg y
+                return true;
                 break;
                 case 0xE000:
                 switch (opcode & 0x00FF) {
@@ -481,4 +485,5 @@ cycle()
                 }
                 break;
         }
+        return false;
 }
