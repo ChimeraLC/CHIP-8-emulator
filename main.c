@@ -43,6 +43,9 @@ uint8_t fontset[80] =
   0xF0, 0x80, 0xF0, 0x80, 0x80  // F
 };
 
+// Verbosity
+bool verbose = false;
+
 // SDL elements
 SDL_Window *window;
 SDL_Renderer *renderer;
@@ -72,6 +75,10 @@ main(int argc, char **argv)
 		return -1;
 	}
 
+        if (argc >= 3) {
+                verbose = argv[2];
+        }
+
         // Initialize memory
         init();
 
@@ -83,6 +90,10 @@ main(int argc, char **argv)
 
         // Loading game file
         char *filename = argv[1];
+
+        if (verbose) {
+                printf("Opening file: %s", filename);
+        }
 
         FILE *rom = fopen(filename, "rb");
 
@@ -98,9 +109,6 @@ main(int argc, char **argv)
 
         fread(memory + 0x200, fsize, 1, rom);
         fclose(rom);
-
-        // Random seed (should this be included?)
-        srand(0);
 
         SDL_Event event;
         bool active = true;
@@ -322,7 +330,9 @@ cycle()
         x = (opcode & 0x0F00) >> 8;     // lower 4 bits of upper byte
 
         // Opcode debug message
-        //printf("%x : %x\n", opcode, pc);
+        if (verbose) {
+                printf("Running opcode %x at %x\n", opcode, pc);
+        }
 
         // Running different opcodes
         switch (opcode & 0xF000) {     // Switch on first value
@@ -600,4 +610,7 @@ void
 play_sound() {
         // Unpause audio device
         SDL_PauseAudio(0);
+        if (verbose) {
+                printf("Playing sound\n");
+        }
 }
