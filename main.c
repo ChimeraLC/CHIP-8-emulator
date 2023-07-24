@@ -1,5 +1,7 @@
 #include <stdio.h>
 #include <SDL.h>
+#include <SDL_audio.h>
+#include <math.h>
 #include <stdbool.h>
 #include <unistd.h>
 /*
@@ -41,10 +43,25 @@ uint8_t fontset[80] =
   0xF0, 0x80, 0xF0, 0x80, 0x80  // F
 };
 
+// SDL elements
+SDL_Window *window;
+SDL_Renderer *renderer;
+SDL_Texture *texture;
+
+// SDL audio elements
+const int AMPLITUDE = 28000;
+const int SAMPLE_RATE = 44100;
+SDL_AudioSpec want;
+int sample_nr = 0;
 
 // Functions
 void init();
+bool init_SDL();
+bool init_SDL_audio();
 bool cycle();
+void draw_graphics();
+void play_sound();
+void audio_callback(void *user_data, Uint8 *raw_buffer, int bytes);
 
 int
 main(int argc, char **argv)
@@ -59,20 +76,11 @@ main(int argc, char **argv)
         init();
 
         // Initialize sdl
-        if (SDL_Init(SDL_INIT_EVERYTHING) != 0) {
-                printf("error initializing SDL: %s\n", SDL_GetError());
-        }
-        SDL_Window *window = SDL_CreateWindow("Chip-8", 
-                                        SDL_WINDOWPOS_CENTERED,
-                                        SDL_WINDOWPOS_CENTERED,
-                                        1280, 640, 0);
+        init_SDL();
 
-        SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
-        SDL_RenderSetLogicalSize(renderer, 64, 32);
-        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); 
+        // Initialize sdl audio
+        if (!init_SDL_audio())  printf("Audio device failed to initialize.\n");
 
-        SDL_Texture *texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA32, 
-                                        SDL_TEXTUREACCESS_STREAMING, 64, 32);
         // Loading game file
         char *filename = argv[1];
 
@@ -86,7 +94,6 @@ main(int argc, char **argv)
         // Copying into memory
         fseek(rom, 0, SEEK_END);
         long fsize = ftell(rom);
-        printf("size: %ld\n", fsize);
         fseek(rom, 0, SEEK_SET); 
 
         fread(memory + 0x200, fsize, 1, rom);
@@ -220,34 +227,18 @@ main(int argc, char **argv)
 
                 // Updating timers
                 if (d_timer > 0) d_timer--;
-                if (s_timer > 0) s_timer--;
-
+                if (s_timer > 0) {
+                        if (s_timer == 1) {
+                                play_sound();
+                        }
+                        s_timer--;
+                }
                 // Running emulator cycle
                 draw = cycle();
 
                 // Displaying on screen
                 if (draw) {
-                        uint8_t pixels[8196];
-                        memset(pixels, 0, 8196);
-                        for (int i = 0; i < 2048; i++) {
-                                if (graphics[i]) {
-                                        uint32_t *int32s = (uint32_t *) pixels;
-                                        // TODO: cast to uint32_t
-                                        int32s[i] = 4294967295;
-                                }
-                        }
-                        int texture_pitch = 0;
-                        void* texture_pixels = NULL;
-                        if (SDL_LockTexture(texture, NULL, &texture_pixels, &texture_pitch) != 0) {
-                                SDL_Log("Unable to lock texture: %s", SDL_GetError());
-                        }
-                        else {
-                                memcpy(texture_pixels, pixels, texture_pitch * 32);
-                        }
-                        SDL_UnlockTexture(texture);
-                        SDL_RenderClear(renderer);
-                        SDL_RenderCopy(renderer, texture, NULL, NULL);
-                        SDL_RenderPresent(renderer);
+                        draw_graphics();
                 }
         }
 
@@ -258,7 +249,9 @@ main(int argc, char **argv)
         SDL_Quit();             // Close SDL
         return (1);
 }
-
+/*
+ * Initializes and zeros chip-8 cpu
+ */
 void 
 init()
 {
@@ -279,6 +272,37 @@ init()
         // Copy over fontset
         memcpy(memory, fontset, 80 * sizeof(uint8_t));
 }
+/*
+ * Initializes the visual SDL elements, returns false if there is an error.
+ */
+bool
+init_SDL()
+{
+        // Initialize all SDL systems
+        if (SDL_Init(SDL_INIT_EVERYTHING) != 0) {
+                // Send message if fails
+                printf("error initializing SDL: %s\n", SDL_GetError());
+                return false;
+        }
+        // Create parts of window (64 by 32 pixels)
+        window = SDL_CreateWindow("Chip-8", 
+                                        SDL_WINDOWPOS_CENTERED,
+                                        SDL_WINDOWPOS_CENTERED,
+                                        1280, 640, 0);
+
+        renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+        SDL_RenderSetLogicalSize(renderer, 64, 32);
+        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); 
+
+        texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA32, 
+                                        SDL_TEXTUREACCESS_STREAMING, 64, 32);
+
+        return true; // Return true when there is no problem
+}
+
+/*
+ * Emulates the reading of a single opcode
+ */
 bool
 cycle()
 {
@@ -486,4 +510,94 @@ cycle()
                 break;
         }
         return false;
+}
+
+/*
+ * Draws the pixels represented by graphics onto the SDL screen
+ */
+void draw_graphics() 
+{
+
+        // Creating and zeroing array of pixels
+        uint8_t pixels[8196];
+        memset(pixels, 0, 8196);
+        
+        // Filling pixels corresponding to graphics array
+        for (int i = 0; i < 2048; i++) {
+                if (graphics[i]) {
+                        // Casting to uint32_t to set RGBA simultaneously
+                        uint32_t *int32s = (uint32_t *) pixels;
+                        int32s[i] = 4294967295;
+                }
+        }
+
+        // Applying texture to screen
+        int texture_pitch = 0;
+        void* texture_pixels = NULL;
+        if (SDL_LockTexture(texture, NULL, &texture_pixels, &texture_pitch) != 0) {
+                SDL_Log("Unable to lock texture: %s", SDL_GetError());
+        }
+        else {
+                memcpy(texture_pixels, pixels, texture_pitch * 32);
+        }
+        SDL_UnlockTexture(texture);
+        SDL_RenderClear(renderer);
+        SDL_RenderCopy(renderer, texture, NULL, NULL);
+        SDL_RenderPresent(renderer);
+}
+
+
+/*
+ * Initializes the audio SDL elements, returns false if there is an error.
+ */
+bool
+init_SDL_audio()
+{
+
+        SDL_AudioSpec want;
+        want.freq = SAMPLE_RATE; // number of samples per second
+        want.format = AUDIO_S16SYS; // sample type (here: signed short i.e. 16 bit)
+        want.channels = 1; // only one channel
+        want.samples = 2048; // buffer-size
+        want.callback = audio_callback; // function SDL calls periodically to refill the buffer
+        want.userdata = &sample_nr; // counter, keeping track of current sample number
+
+        // Open audio device
+        SDL_AudioSpec have;
+        if(SDL_OpenAudio(&want, &have) != 0) {
+                printf("Failed to open audio: %s\n", SDL_GetError());
+                return false;
+        }
+        return true;
+}
+/*
+ * audio_callback functino used with SDL_AudioSpec
+ */
+void audio_callback(void *user_data, Uint8 *raw_buffer, int bytes)
+{
+        uint16_t *buffer = (uint16_t*)raw_buffer;
+        int length = bytes / 2; 
+        int sample_nr = *(int*)user_data;
+
+        // Sine wave 
+        for(int i = 0; i < length; i++, sample_nr++)
+                {
+                double time = (double)sample_nr / (double)SAMPLE_RATE;
+                buffer[i] = (uint16_t)(AMPLITUDE * sin(2.0f * M_PI * 441.0f * time)); // render 441 HZ sine wave
+        }
+
+        // Audio cutoff
+        if (sample_nr > 100) {
+                sample_nr = 0;
+                SDL_PauseAudio(1);
+        }
+}
+
+/*
+ * Plays a sound
+ */
+void
+play_sound() {
+        // Unpause audio device
+        SDL_PauseAudio(0);
 }
