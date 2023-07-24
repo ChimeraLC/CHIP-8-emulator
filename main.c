@@ -91,8 +91,12 @@ main(int argc, char **argv)
         // Loading game file
         char *filename = argv[1];
 
-        if (verbose) {
-                printf("Opening file: %s", filename);
+        // Checking for verbose flag
+        int c;
+        while ((c = getopt (argc, argv, "abc:")) != -1) {
+                if (c == 'v') {
+                        verbose = true;
+                }
         }
 
         FILE *rom = fopen(filename, "rb");
